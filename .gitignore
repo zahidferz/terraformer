@@ -7,3 +7,8 @@ terraformer
 terraform.tfstate
 terraform.tfstate.backup
 init.tf
+cmd/tmp/
+cmd/tmp/*
+cmd/
+cmd/*
+provider_cmd_*.go
