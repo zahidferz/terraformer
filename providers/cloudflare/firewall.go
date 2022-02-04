@@ -17,7 +17,7 @@ package cloudflare
 import (
 	"fmt"
 	"strings"
-
+	
 	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	cf "github.com/cloudflare/cloudflare-go"
 )
@@ -38,7 +38,7 @@ func (*FirewallGenerator) createZoneLockdownsResources(api *cf.API, zoneID, zone
 		for _, zonelockdown := range zonelockdowns.Result {
 			resources = append(resources, terraformutils.NewResource(
 				zonelockdown.ID,
-				fmt.Sprintf("%s_%s", zoneName, zonelockdown.ID),
+				fmt.Sprintf("%v-%v", zoneName, zonelockdown.Priority),
 				"cloudflare_zone_lockdown",
 				"cloudflare",
 				map[string]string{
@@ -69,9 +69,12 @@ func (g *FirewallGenerator) createAccountAccessRuleResources(api *cf.API) ([]ter
 
 	totalPages := rules.TotalPages
 	for _, rule := range rules.Result {
+		ipsan := TfSanitizes(rule.Configuration.Value)
+		ruleipsan := fmt.Sprintf("%v-%v", rule.Configuration.Target, ipsan)
+		fmt.Println(ruleipsan)
 		resources = append(resources, terraformutils.NewSimpleResource(
 			rule.ID,
-			rule.ID,
+			ruleipsan,
 			"cloudflare_access_rule",
 			"cloudflare",
 			[]string{},
@@ -105,11 +108,39 @@ func (*FirewallGenerator) createZoneAccessRuleResources(api *cf.API, zoneID, zon
 	}
 
 	totalPages := rules.TotalPages
+
+	//Creamos lista para guardar resources
+	storedresources := make([]string, 0)
 	for _, r := range rules.Result {
 		if strings.Compare(r.Scope.Type, "organization") != 0 {
+			// sanitizamos la regla y le damos formato
+			notesan := TfSanitizes(r.Notes)
+			// Creamos la regla con el formato
+			rule := fmt.Sprintf("%v-%v-%v", zoneName, r.Mode, notesan)
+			fmt.Println(rule)			
+			// si la regla esta en stored resources
+			matches := coincidences(rule, storedresources)
+			fmt.Println("matches--\n")
+			fmt.Println(matches)
+			if len(matches) > 0 {
+				max := maxnumcoincidences(matches)
+				fmt.Println(max)
+				if max == 0 {
+					rule += "-1"
+					storedresources = append(storedresources, rule)
+				} else {
+					max += 1
+					rule = fmt.Sprintf("%v-%v", rule,max)
+					storedresources = append(storedresources, rule)
+				}
+			} else{
+				storedresources = append(storedresources, rule)
+			}
+			fmt.Println(storedresources)
+
 			resources = append(resources, terraformutils.NewResource(
 				r.ID,
-				fmt.Sprintf("%s_%s", zoneName, r.ID),
+				rule,
 				"cloudflare_access_rule",
 				"cloudflare",
 				map[string]string{
@@ -152,11 +183,32 @@ func (*FirewallGenerator) createFilterResources(api *cf.API, zoneID, zoneName st
 	if err != nil {
 		return resources, err
 	}
-
+	
+	//Creamos lista para guardar resources
+	storedresources := make([]string, 0)
 	for _, filter := range filters {
+		// Creamos el filtro con el formato
+		filt := fmt.Sprintf("%v", zoneName)			
+		// si el filtro esta en stored resources
+		matches := coincidences(filt, storedresources)
+		if len(matches) > 0 {
+			max := maxnumcoincidences(matches)
+			if max == 0 {
+				filt += "-1"
+				storedresources = append(storedresources, filt)
+			} else {
+				max += 1
+				filt = fmt.Sprintf("%v-%v", filt,max)
+				storedresources = append(storedresources, filt)
+			}
+		} else{
+			storedresources = append(storedresources, filt)
+		}
+
+
 		resources = append(resources, terraformutils.NewResource(
 			filter.ID,
-			fmt.Sprintf("%s_%s", zoneName, filter.ID),
+			fmt.Sprintf("%v", filt),
 			"cloudflare_filter",
 			"cloudflare",
 			map[string]string{
@@ -234,11 +286,9 @@ func (g *FirewallGenerator) InitResources() error {
 	}
 
 	funcs := []func(*cf.API, string, string) ([]terraformutils.Resource, error){
-		g.createFirewallRuleResources,
 		g.createFilterResources,
 		g.createZoneAccessRuleResources,
 		g.createZoneLockdownsResources,
-		g.createRateLimitResources,
 	}
 
 	for _, zone := range zones {

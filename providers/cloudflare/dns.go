@@ -17,6 +17,8 @@ package cloudflare
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/GoogleCloudPlatform/terraformer/terraformutils"
 	cf "github.com/cloudflare/cloudflare-go"
@@ -57,10 +59,53 @@ func (*DNSGenerator) createRecordsResources(api *cf.API, zoneID string) ([]terra
 		return resources, err
 	}
 
+	// loop threw the records
 	for _, record := range records {
+		// Sanitize the record that it comes
+		rename := fmt.Sprintf("%s-%s", record.Name, record.Type)
+		recordname := TfSanitize(rename)
+		/* 		fmt.Printf("\n----Record--%v--\n", recordname) */
+		// storing the resources names
+		storedresources := make([]string, 0)
+		for i := range resources {
+			// Get the resource name
+			resourcename := resources[i].ResourceName
+			storedresources = append(storedresources, resourcename)
+		}
+		/* 		fmt.Println(storedresources) */
+		// if recordname is in stored resources
+		if stringInSlice(recordname, storedresources) {
+			// para cada resource dentro de los resources guardados
+			numbers := make([]int, 0)
+			for i := range storedresources {
+				// busca el numero dentro del resource
+				split := strings.Split(storedresources[i], "-")
+				lastvalue := split[len(split)-1]
+				number, err := strconv.Atoi(lastvalue)
+				if err == nil {
+					numbers = append(numbers, number)
+				}
+			}
+			// si hay indices en los numeros
+			if len(numbers) > 0 {
+				max := numbers[0] // assume first value is the smallest
+				for _, value := range numbers {
+					if value > max {
+						max = value // found another smaller value, replace previous value in max
+					}
+				}
+				record.Type += "-"
+				max += 1
+				s := strconv.Itoa(max)
+				record.Type += s
+			} else {
+				record.Type += "-1"
+			}
+		}
+
 		r := terraformutils.NewResource(
 			record.ID,
-			fmt.Sprintf("%s_%s_%s", record.Type, record.ZoneName, record.ID),
+			fmt.Sprintf("%s-%s", record.Name, record.Type),
 			"cloudflare_record",
 			"cloudflare",
 			map[string]string{
